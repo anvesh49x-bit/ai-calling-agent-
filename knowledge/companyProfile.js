@@ -7,13 +7,13 @@ export const COMPANY = {
   tagline:
     "Building custom software and AI solutions for modern businesses.",
 
-  founder: "Satya Anvesh Kumar",
+  founder: "Satya Anwesh Kumar G.",
 
   founderDescription:
-    "An aspiring entrepreneur focused on building practical AI and software solutions.",
+    "Founder & Software Engineer at Arvex Technologies, a 3-person software company.",
 
   about:
-    "Arvex Technologies is a Vijayawada-based IT company that helps businesses automate, digitize and grow through custom software and AI solutions.",
+    "Arvex Technologies is a 3-person IT company based in Vijayawada that helps businesses automate, digitize and grow through custom software and AI solutions.",
 
   services: [
 

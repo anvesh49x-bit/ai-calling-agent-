@@ -8,10 +8,8 @@ const FILLERS = {
 let lastFillerType = null;
 
 export function maybePrependFiller(text, plan, state = {}) {
-  if (!plan.allowFillers && !plan.allowHesitation) return { text, used: null };
-
-  const recent = state.acknowledgementsUsed ?? [];
-  if (recent.length >= 2) return { text, used: null };
+  // Fillers disabled to ensure naturalness and avoid robotic sounding "Umm"s
+  return { text, used: null };
 
   const roll = Math.random();
   let pool = null;

@@ -12,28 +12,41 @@ export class CartesiaAdapter {
   constructor() {
     this.ws = null;
     this.abortController = null;
+    this._handleWsError = this._handleWsError.bind(this);
+    this._handleWsClose = this._handleWsClose.bind(this);
   }
 
-async connect() {
-  if (this.ws) return;
-
-  // console.log("🔊 Connecting to Cartesia...");
-
-  try {
-    this.ws = await client.tts.websocket();
-
-    // console.log("Cartesia websocket =", this.ws);
-
-    if (!this.ws) {
-      throw new Error("Cartesia returned a null websocket.");
+  async connect() {
+    if (this.ws && this.ws.socket?.readyState === 1) return;
+    if (this.ws) {
+      this.close();
     }
 
-    // console.log("✅ Cartesia connected");
-  } catch (err) {
-    console.error("❌ Cartesia connect failed:", err);
-    throw err;
+    try {
+      this.ws = await client.tts.websocket();
+      if (!this.ws) {
+        throw new Error("Cartesia returned a null websocket.");
+      }
+      console.log("🔊 Connected to Cartesia TTS.");
+
+      this.ws.on("error", this._handleWsError);
+      if (this.ws.socket?.addEventListener) {
+        this.ws.socket.addEventListener("close", this._handleWsClose);
+      }
+    } catch (err) {
+      console.error("❌ Cartesia connect failed:", err);
+      this.close();
+      throw err;
+    }
   }
-}
+
+  _handleWsError(err) {
+    console.error("❌ Cartesia websocket error:", err);
+  }
+
+  _handleWsClose() {
+    console.warn("⚠️ Cartesia websocket closed");
+  }
 
   async speak(twilioWs, streamSid, segments, metadata, signal) {
     await this.connect();
@@ -53,54 +66,73 @@ async connect() {
           await abortableDelay(pauseMs, signal);
         }
       }
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        console.error("❌ CartesiaAdapter speak error:", err?.message || err);
+        throw err;
+      }
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
   }
   async speakSegment(twilioWs, streamSid, segment, metadata, signal) {
-    await this.connect();
+    try {
+      await this.connect();
 
-    // console.log("this.ws =", this.ws);
+      if (!this.ws) {
+          throw new Error("this.ws is NULL before context()");
+      }
 
-    if (!this.ws) {
-        throw new Error("this.ws is NULL before context()");
+      // console.log("typeof context =", typeof this.ws.context);
+
+      const ctx = this.ws.context({
+        model_id: "sonic-latest",
+        voice: { mode: "id", id: env.CARTESIA_VOICE_ID },
+        output_format: {
+          container: "raw",
+          encoding: "pcm_mulaw",
+          sample_rate: 8000
+        },
+        language: metadata?.cartesia?.language ?? "en"
+      });
+
+      await ctx.push({ transcript: segment.text });
+      await ctx.no_more_inputs();
+
+      for await (const event of ctx.receive()) {
+        if (signal?.aborted) break;
+
+        if (event.type === "chunk" && event.audio) {
+          const payload = Buffer.from(event.audio).toString("base64");
+          twilioWs.send(
+            JSON.stringify({
+              event: "media",
+              streamSid,
+              media: { payload }
+            })
+          );
+        }
+
+        if (event.type === "error") {
+          console.error("Cartesia error:", event.message);
+          break;
+        }
+      }
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      console.error("❌ Cartesia speakSegment error:", err?.message || err);
+      this.close();
+      throw err;
     }
+  }
 
-    // console.log("typeof context =", typeof this.ws.context);
-
-    const ctx = this.ws.context({
- 
-      model_id: "sonic-latest",
-      voice: { mode: "id", id: env.CARTESIA_VOICE_ID },
-      output_format: {
-        container: "raw",
-        encoding: "pcm_mulaw",
-        sample_rate: 8000
-      },
-      language: metadata?.cartesia?.language ?? "en"
-    });
-
-    await ctx.push({ transcript: segment.text });
-    await ctx.no_more_inputs();
-
-    for await (const event of ctx.receive()) {
-      if (signal?.aborted) break;
-
-      if (event.type === "chunk" && event.audio) {
-        const payload = Buffer.from(event.audio).toString("base64");
-        twilioWs.send(
-          JSON.stringify({
-            event: "media",
-            streamSid,
-            media: { payload }
-          })
-        );
-      }
-
-      if (event.type === "error") {
-        console.error("Cartesia error:", event.message);
-        break;
-      }
+  _removeWsListeners() {
+    if (!this.ws) return;
+    if (typeof this.ws.off === "function") {
+      this.ws.off("error", this._handleWsError);
+    }
+    if (this.ws.socket?.removeEventListener) {
+      this.ws.socket.removeEventListener("close", this._handleWsClose);
     }
   }
 
@@ -110,11 +142,14 @@ async connect() {
 
   close() {
     try {
+      this.abortController?.abort();
+      this._removeWsListeners();
       this.ws?.close();
     } catch {
       /* ignore */
+    } finally {
+      this.ws = null;
     }
-    this.ws = null;
   }
 }
 

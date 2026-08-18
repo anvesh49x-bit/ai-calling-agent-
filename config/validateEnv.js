@@ -3,7 +3,9 @@ import { env } from "./env.js";
 export function validateEnv() {
   const requiredVars = [
     "DEEPGRAM_API_KEY",
-    "ANTHROPIC_API_KEY"
+    "ANTHROPIC_API_KEY",
+    "CARTESIA_API_KEY",
+    "CARTESIA_VOICE_ID"
   ];
 
   const missingVars = requiredVars.filter(

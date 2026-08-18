@@ -13,12 +13,19 @@ export class InterruptHandler {
   handleBargeIn(interimTranscript, abortController) {
     if (!this.playback.isSpeaking) return false;
 
+    console.log(`\n[BARGE_IN] DETECTED (${Date.now()})`);
+
     this.interrupted = true;
     const partial = this.playback.getPartialSpokenText();
 
     abortController?.abort();
+    console.log(`[BARGE_IN] LLM_ABORT (${Date.now()})`);
+
     this.ttsAdapter.abort();
+    console.log(`[BARGE_IN] TTS_ABORT (${Date.now()})`);
+
     this.playback.abort();
+    console.log(`[BARGE_IN] PLAYBACK_CLEAR (${Date.now()})`);
 
     this.memory.setInterruptedContext(partial, interimTranscript);
     this.pendingUtterance = interimTranscript;

@@ -1,7 +1,8 @@
-import { company } from "../../brain/knowledgeBase.js";
+import { COMPANY as company } from "../../knowledge/companyProfile.js";
 import { ConversationStage, CustomerEmotion } from "../types.js";
 import { classifyIntent, decideAction } from "../perception/IntentClassifier.js";
 import { detectEmotion } from "../perception/EmotionDetector.js";
+import { EmotionPersonalityEngine } from "./EmotionPersonalityEngine.js";
 
 function createInitialState() {
   return {
@@ -18,10 +19,21 @@ function createInitialState() {
     askedServices: false,
     requestedDemo: false,
     industry: null,
+    businessType: null,
+    websiteType: null,
     requirement: null,
+    requiredFeatures: [],
+    painPoints: [],
+    location: null,
+    users: [],
+    platform: null,
+    pricingAsked: false,
+    meetingRequested: false,
     businessOwner: false,
+    decisionMaker: false,
     timeline: null,
     budget: null,
+    priority: "Low",
     leadScore: 0,
     topicsExplained: [],
     questionsAsked: [],
@@ -48,34 +60,138 @@ function extractProfile(state, message) {
   for (const pattern of namePatterns) {
     const match = message.match(pattern);
     if (match) {
-      state.customerName = match[1].trim().replace(/[.,!?]+$/, "");
+      const name = match[1].trim().replace(/[.,!?].*$/, '').replace(/\s+(and|i|we|my|the)\b.*/i, '').trim();
+      if (name && state.customerName !== name) {
+        state.customerName = name;
+        console.log(`[MEMORY] FACT_ADDED: name = ${name}`);
+      }
       break;
     }
   }
 
-  if (text.includes("hospital") || text.includes("clinic")) {
-    state.industry = "Healthcare";
-    state.businessOwner = true;
-    state.leadScore += 30;
+  if (text.includes("hospital") || text.includes("clinic") || text.includes("medical") || text.includes("healthcare")) {
+    if (state.industry !== "Healthcare") {
+      state.industry = "Healthcare";
+      state.businessType = "Medical Facility";
+      state.businessOwner = true;
+      state.leadScore += 30;
+      console.log(`[MEMORY] FACT_ADDED: industry = Healthcare`);
+    }
   }
 
-  if (text.includes("restaurant") || text.includes("hotel")) {
-    state.industry = "Restaurant";
-    state.businessOwner = true;
-    state.leadScore += 30;
+  if (text.includes("restaurant") || text.includes("hotel") || text.includes("cafe") || text.includes("hospitality")) {
+    if (state.industry !== "Hospitality") {
+      state.industry = "Hospitality";
+      state.businessType = "Restaurant/Cafe";
+      state.businessOwner = true;
+      state.leadScore += 30;
+      console.log(`[MEMORY] FACT_ADDED: industry = Hospitality`);
+    }
+  }
+
+  if (text.includes("logistics") || text.includes("transport") || text.includes("shipping") || text.includes("delivery company")) {
+    if (state.industry !== "Logistics") {
+      state.industry = "Logistics";
+      state.businessType = "Logistics/Transport";
+      state.businessOwner = true;
+      state.leadScore += 30;
+      console.log(`[MEMORY] FACT_ADDED: industry = Logistics`);
+    }
+  }
+  
+  if (text.includes("ecommerce") || text.includes("store") || text.includes("shop") || text.includes("retail")) {
+    if (state.industry !== "Retail") {
+      state.industry = "Retail";
+      state.websiteType = "E-Commerce";
+      state.businessOwner = true;
+      state.leadScore += 30;
+      console.log(`[MEMORY] FACT_ADDED: industry = Retail`);
+    }
   }
 
   if (text.includes("website")) {
-    state.requirement = "Website";
-    state.leadScore += 20;
+    if (state.requirement !== "Website") {
+      state.requirement = "Website";
+      state.leadScore += 20;
+      console.log(`[MEMORY] FACT_ADDED: requirement = Website`);
+    }
   }
 
-  if (text.includes("tomorrow") || text.includes("next week") || text.includes("asap")) {
-    state.timeline = message.match(/\b(tomorrow|next week|asap|this week)\b/i)?.[0] ?? state.timeline;
+  if (text.match(/\b(erp|management system)\b/i)) {
+    if (state.requirement !== "ERP") {
+      state.requirement = "ERP";
+      state.leadScore += 30;
+      console.log(`[MEMORY] FACT_ADDED: requirement = ERP`);
+    }
   }
 
-  if (text.includes("budget") || text.match(/\b\d+\s*(k|lakh|rupees?)\b/i)) {
-    state.budget = message;
+  if (text.match(/\b(portal|dashboard|platform)\b/i)) {
+    if (!state.platform) {
+      state.platform = "Portal";
+      console.log(`[MEMORY] FACT_ADDED: platform = Portal`);
+    }
+  }
+
+  const userMatches = text.match(/\b(employees?|managers?|customers?|students?|patients?|staff|clients?|admins?)\b/g) || [];
+  for (const match of userMatches) {
+    const key = match.replace(/s$/, ''); // singularize loosely
+    const finalKey = key === 'manager' ? 'managers' : key === 'employee' ? 'employees' : key === 'customer' ? 'customers' : match;
+    if (!state.users.includes(finalKey)) {
+      state.users.push(finalKey);
+      console.log(`[MEMORY] FACT_ADDED: users = ${finalKey}`);
+    }
+  }
+
+  const locationMatch = message.match(/\b(?:in|from|at|based in)\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\b/);
+  if (locationMatch && !state.location) {
+     const loc = locationMatch[1].trim();
+     if (loc.length > 2 && loc.toLowerCase() !== "the") {
+       state.location = loc;
+       console.log(`[MEMORY] FACT_ADDED: location = ${loc}`);
+     }
+  }
+
+  if (text.match(/\b(booking|appointments?|reservations?|orders?|cart|payment|delivery|menu)\b/i)) {
+    const featureMatch = message.match(/\b(booking|appointments?|reservations?|orders?|cart|payment|delivery|menu)\b/ig) || [];
+    for (const feat of featureMatch) {
+      const key = feat.toLowerCase().replace(/s$/, '');
+      const normalised = key === 'appointment' ? 'booking' : key;
+      if (!state.requiredFeatures.includes(normalised)) {
+        state.requiredFeatures.push(normalised);
+        console.log(`[MEMORY] FACT_ADDED: feature = ${normalised}`);
+      }
+    }
+  }
+
+  if (text.match(/\b(slow|expensive|manual|outdated|losing customers?|no online|no website|complicated|confusing)\b/i)) {
+    const painMatches = message.match(/\b(slow|expensive|manual|outdated|losing customers?|no online|no website|complicated|confusing)\b/ig) || [];
+    for (const pain of painMatches) {
+      const key = pain.toLowerCase();
+      if (!state.painPoints.includes(key)) {
+        state.painPoints.push(key);
+      }
+    }
+  }
+
+  if (text.includes("i am the owner") || text.includes("my business") || text.includes("i run")) {
+    state.decisionMaker = true;
+  }
+
+  if (text.includes("tomorrow") || text.includes("next week") || text.includes("asap") || text.includes("urgent")) {
+    const tl = message.match(/\b(tomorrow|next week|asap|this week|urgent)\b/i)?.[0]?.toLowerCase();
+    if (tl && state.timeline !== tl) {
+      state.timeline = tl;
+      state.priority = "High";
+      console.log(`[MEMORY] FACT_ADDED: timeline = ${tl}`);
+    }
+  }
+
+  if (text.includes("budget") || text.match(/\b\d+\s*(k|lakh|rupees?|thousand)\b/i)) {
+    const bg = message.match(/\b\d+\s*(k|lakh|rupees?|thousand)\b/i)?.[0];
+    if (bg && state.budget !== bg) {
+      state.budget = bg;
+      console.log(`[MEMORY] FACT_ADDED: budget = ${bg}`);
+    }
   }
 }
 
@@ -125,6 +241,7 @@ function updateStage(state, intent) {
 
 const sessions = new Map();
 const transcripts = new Map();
+const emotionEngines = new Map();
 
 export class MemoryStore {
   constructor(callId) {
@@ -132,6 +249,7 @@ export class MemoryStore {
     if (!sessions.has(callId)) {
       sessions.set(callId, createInitialState());
       transcripts.set(callId, []);
+      emotionEngines.set(callId, new EmotionPersonalityEngine());
     }
   }
 
@@ -147,9 +265,13 @@ export class MemoryStore {
     return company;
   }
 
+  get emotionEngine() {
+    return emotionEngines.get(this.callId);
+  }
+
   processUserTurn(message) {
     const state = this.state;
-    const intent = classifyIntent(message);
+    const intent = classifyIntent(message, state);
     const emotion = detectEmotion(message, state.customerEmotion);
 
     state.previousIntent = state.currentIntent;
@@ -161,6 +283,9 @@ export class MemoryStore {
     updateStage(state, intent);
 
     const action = decideAction(intent, state);
+    const complexity = estimateComplexity(message, state);
+    
+    this.emotionEngine.updateState(emotion.primary, intent, complexity);
 
     this.addTurn("Customer", message);
 
@@ -169,7 +294,7 @@ export class MemoryStore {
       intent,
       action,
       emotion,
-      complexity: estimateComplexity(message, state)
+      complexity
     };
   }
 
@@ -221,19 +346,30 @@ export class MemoryStore {
     return {
       customerName: s.customerName,
       industry: s.industry,
+      businessType: s.businessType,
+      websiteType: s.websiteType,
       requirement: s.requirement,
+      requiredFeatures: s.requiredFeatures,
+      painPoints: s.painPoints,
+      decisionMaker: s.decisionMaker,
       timeline: s.timeline,
       budget: s.budget,
+      priority: s.priority,
+      location: s.location,
+      users: s.users,
+      platform: s.platform,
       language: s.language,
       stage: s.conversationStage,
       intent: s.currentIntent,
       emotion: s.customerEmotion,
       leadScore: s.leadScore,
       topicsExplained: s.topicsExplained,
+      questionsAsked: s.questionsAsked,
       interruptedContext: s.interruptedContext,
       partialSpokenText: s.partialSpokenText,
       recentTranscript: this.transcript.slice(-6),
-      business: this.businessContext
+      business: this.businessContext,
+      emotionEngine: this.emotionEngine
     };
   }
 
@@ -242,6 +378,7 @@ export class MemoryStore {
     const transcript = transcripts.get(callId) || [];
     sessions.delete(callId);
     transcripts.delete(callId);
+    emotionEngines.delete(callId);
     return { state, transcript };
   }
 }
